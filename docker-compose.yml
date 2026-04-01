@@ -1,0 +1,8 @@
+version: '3.8'
+services:
+  sudoku:
+    build: .
+    container_name: sudoku-app
+    ports:
+      - "3456:80"
+    restart: unless-stopped
