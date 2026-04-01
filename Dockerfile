@@ -3,7 +3,7 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --legacy-peer-deps
 COPY . .
-RUN npm run build
+RUN npm run build && mkdir -p /frontend-out && cp -R build/. /frontend-out/
 
 FROM nginx:alpine
 COPY --from=builder /app/build /usr/share/nginx/html
