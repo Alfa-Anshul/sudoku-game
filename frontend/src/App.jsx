@@ -1,199 +1,216 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { generateFullBoard, createPuzzle, isValid, getHint, getTip } from './sudoku';
+import { generateFullBoard, createPuzzle, isValid, getHint, TIPS } from './sudoku';
 import './App.css';
 
-const DIFFICULTIES = { Easy: 40, Medium: 32, Hard: 25 };
+const DIFF = { Easy:42, Medium:32, Hard:24 };
 
 export default function App() {
-  const [difficulty, setDifficulty] = useState('Medium');
+  const [diff, setDiff] = useState('Medium');
   const [solution, setSolution] = useState(null);
   const [board, setBoard] = useState(null);
   const [locked, setLocked] = useState({});
-  const [selected, setSelected] = useState(null);
+  const [sel, setSel] = useState(null);
   const [errors, setErrors] = useState({});
-  const [hint, setHint] = useState(null);
-  const [tip, setTip] = useState('');
+  const [hinted, setHinted] = useState({});
   const [won, setWon] = useState(false);
   const [timer, setTimer] = useState(0);
   const [running, setRunning] = useState(false);
   const [notes, setNotes] = useState({});
   const [noteMode, setNoteMode] = useState(false);
   const [hintCount, setHintCount] = useState(0);
+  const [tipIdx, setTipIdx] = useState(0);
+  const [history, setHistory] = useState([]);
+  const [shake, setShake] = useState(null);
 
-  const newGame = useCallback((diff) => {
-    const d = diff || difficulty;
+  const startGame = useCallback((d) => {
     const full = generateFullBoard();
-    const puz = createPuzzle(full, DIFFICULTIES[d]);
+    const puz = createPuzzle(full, DIFF[d]);
     const lk = {};
-    for (let r = 0; r < 9; r++)
-      for (let c = 0; c < 9; c++)
-        if (puz[r][c] !== 0) lk[`${r}-${c}`] = true;
-    setSolution(full);
-    setBoard(puz.map(r => [...r]));
-    setLocked(lk);
-    setSelected(null);
-    setErrors({});
-    setHint(null);
-    setTip(getTip());
-    setWon(false);
-    setTimer(0);
-    setRunning(true);
-    setNotes({});
-    setHintCount(0);
-  }, [difficulty]);
+    for(let r=0;r<9;r++) for(let c=0;c<9;c++) if(puz[r][c]!==0) lk[`${r}-${c}`]=true;
+    setSolution(full); setBoard(puz.map(r=>[...r])); setLocked(lk);
+    setSel(null); setErrors({}); setHinted({}); setWon(false);
+    setTimer(0); setRunning(true); setNotes({}); setNoteMode(false);
+    setHintCount(0); setHistory([]); setTipIdx(Math.floor(Math.random()*TIPS.length));
+  }, []);
 
-  useEffect(() => { newGame(); }, []);
+  useEffect(() => { startGame('Medium'); }, []);
 
   useEffect(() => {
     if (!running) return;
-    const id = setInterval(() => setTimer(t => t + 1), 1000);
+    const id = setInterval(() => setTimer(t => t+1), 1000);
     return () => clearInterval(id);
   }, [running]);
 
   const fmt = s => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
 
-  const handleCell = (r, c) => { if (!won) { setSelected([r, c]); setHint(null); } };
-
-  const handleInput = (num) => {
-    if (!selected || won) return;
-    const [r, c] = selected;
+  const input = (num) => {
+    if (!sel || won) return;
+    const [r,c] = sel;
     if (locked[`${r}-${c}`]) return;
-    if (noteMode) {
-      const key = `${r}-${c}`;
+    if (noteMode && num!==0) {
       setNotes(prev => {
-        const cur = new Set(prev[key] || []);
-        cur.has(num) ? cur.delete(num) : cur.add(num);
-        return { ...prev, [key]: cur };
-      });
-      return;
+        const cur = new Set(prev[`${r}-${c}`]||[]);
+        cur.has(num)?cur.delete(num):cur.add(num);
+        return {...prev,[`${r}-${c}`]:cur};
+      }); return;
     }
-    const nb = board.map(row => [...row]);
-    nb[r][c] = num === nb[r][c] ? 0 : num;
-    const ne = { ...errors };
-    delete ne[`${r}-${c}`];
-    if (num !== 0 && !isValid(nb, r, c, num)) ne[`${r}-${c}`] = true;
-    setBoard(nb);
-    setErrors(ne);
-    setNotes(prev => { const n = {...prev}; delete n[`${r}-${c}`]; return n; });
-    const complete = nb.every((row, ri) => row.every((v, ci) => v !== 0 && v === solution[ri][ci]));
-    if (complete) { setWon(true); setRunning(false); }
+    setHistory(h=>[...h,{board:board.map(r=>[...r]),errors:{...errors},notes:{...notes}}]);
+    const nb = board.map(row=>[...row]);
+    nb[r][c] = num===nb[r][c]?0:num;
+    const ne = {...errors}; delete ne[`${r}-${c}`];
+    if (num!==0 && solution && nb[r][c]!==solution[r][c]) {
+      ne[`${r}-${c}`]=true; setShake(`${r}-${c}`);
+      setTimeout(()=>setShake(null),420);
+    }
+    setBoard(nb); setErrors(ne);
+    setNotes(prev=>{const n={...prev};delete n[`${r}-${c}`];return n;});
+    if (solution && nb.every((row,ri)=>row.every((v,ci)=>v!==0&&v===solution[ri][ci])))
+      { setWon(true); setRunning(false); }
   };
 
-  const handleHint = () => {
-    if (!solution || won) return;
-    const h = getHint(board, solution);
-    if (!h) return;
-    setHint(h);
-    setHintCount(hc => hc + 1);
-    const nb = board.map(r => [...r]);
-    nb[h.row][h.col] = h.value;
-    setBoard(nb);
-    setSelected([h.row, h.col]);
-    setErrors(prev => { const e = {...prev}; delete e[`${h.row}-${h.col}`]; return e; });
-    const complete = nb.every((row, ri) => row.every((v, ci) => v !== 0 && v === solution[ri][ci]));
-    if (complete) { setWon(true); setRunning(false); }
+  const undo = () => {
+    if (!history.length) return;
+    const last = history[history.length-1];
+    setBoard(last.board); setErrors(last.errors); setNotes(last.notes);
+    setHistory(h=>h.slice(0,-1));
   };
 
-  const isHighlighted = (r, c) => {
-    if (!selected) return false;
-    const [sr, sc] = selected;
-    return r === sr || c === sc || (Math.floor(r/3) === Math.floor(sr/3) && Math.floor(c/3) === Math.floor(sc/3));
+  const hint = () => {
+    if (!solution||won) return;
+    const h = getHint(board,solution); if(!h) return;
+    setHistory(prev=>[...prev,{board:board.map(r=>[...r]),errors:{...errors},notes:{...notes}}]);
+    setHintCount(hc=>hc+1);
+    const nb = board.map(r=>[...r]); nb[h.row][h.col]=h.value;
+    setBoard(nb); setHinted(prev=>({...prev,[`${h.row}-${h.col}`]:true}));
+    setSel([h.row,h.col]);
+    setErrors(prev=>{const e={...prev};delete e[`${h.row}-${h.col}`];return e;});
+    setNotes(prev=>{const n={...prev};delete n[`${h.row}-${h.col}`];return n;});
+    if (nb.every((row,ri)=>row.every((v,ci)=>v!==0&&v===solution[ri][ci])))
+      { setWon(true); setRunning(false); }
   };
 
-  const isSameVal = (r, c) => {
-    if (!selected || !board) return false;
-    const sv = board[selected[0]][selected[1]];
-    return sv !== 0 && board[r][c] === sv;
+  const highlight = (r,c) => {
+    if (!sel) return false;
+    const [sr,sc]=sel;
+    return r===sr||c===sc||(Math.floor(r/3)===Math.floor(sr/3)&&Math.floor(c/3)===Math.floor(sc/3));
   };
+  const sameVal = (r,c) => {
+    if (!sel||!board) return false;
+    const sv=board[sel[0]][sel[1]];
+    return sv!==0&&board[r][c]===sv;
+  };
+  const numCount = n => board?board.flat().filter(v=>v===n).length:0;
 
-  if (!board) return <div className="loading">Generating puzzle…</div>;
+  if (!board) return <div className="loading"><div className="spinner"/><span>Generating…</span></div>;
 
-  const filled = board.flat().filter(v => v !== 0).length;
-  const pct = Math.round((filled / 81) * 100);
+  const filled=board.flat().filter(v=>v!==0).length;
+  const pct=Math.round((filled/81)*100);
+  const tip=TIPS[tipIdx%TIPS.length];
 
   return (
     <div className="app">
-      <div className="bg-decor">
-        <div className="blob blob1" /><div className="blob blob2" /><div className="blob blob3" />
-      </div>
-      <header className="header">
-        <div className="logo">✦ SUDOKU</div>
-        <div className="header-right">
-          <span className="timer">{fmt(timer)}</span>
-          <span className="hints-badge">💡 {hintCount} hints</span>
+      <div className="canvas"><div className="o o1"/><div className="o o2"/><div className="o o3"/><div className="grid-bg"/></div>
+
+      <header className="hdr">
+        <div className="logo"><span className="ls">✦</span><span className="lt">SUDOKU</span></div>
+        <div className="chips">
+          <div className="chip"><span>⏱</span><span className="cv">{fmt(timer)}</span></div>
+          <div className="chip"><span>💡</span><span className="cv">{hintCount} hints</span></div>
         </div>
       </header>
-      <div className="controls-row">
-        {Object.keys(DIFFICULTIES).map(d => (
-          <button key={d} className={`diff-btn ${difficulty === d ? 'active' : ''}`}
-            onClick={() => { setDifficulty(d); newGame(d); }}>{d}</button>
-        ))}
-        <button className="new-game-btn" onClick={() => newGame()}>New Game</button>
+
+      <div className="tbar">
+        <div className="dgrp">
+          {Object.keys(DIFF).map(d=>(
+            <button key={d} className={`dbtn${diff===d?' on':''}`}
+              onClick={()=>{setDiff(d);startGame(d);}}>{d}</button>
+          ))}
+        </div>
+        <button className="nbtn" onClick={()=>startGame(diff)}>⟳ New Game</button>
       </div>
-      <div className="game-area">
-        <div className="board-wrap">
-          {won && (
-            <div className="win-overlay">
-              <div className="win-card">
-                <div className="win-emoji">🎉</div>
-                <div className="win-title">Brilliant!</div>
-                <div className="win-sub">Solved in {fmt(timer)} · {hintCount} hint{hintCount !== 1 ? 's' : ''} used</div>
-                <button className="new-game-btn" onClick={() => newGame()}>Play Again</button>
+
+      <div className="layout">
+        <div className="bwrap">
+          {won&&(
+            <div className="wov">
+              <div className="wcard">
+                <div className="crow">{['🎉','✨','🏆','✨','🎉'].map((e,i)=><span key={i} style={{animationDelay:`${i*.1}s`}}>{e}</span>)}</div>
+                <h2 className="wtitle">Brilliant!</h2>
+                <p className="wsub">Solved in <b>{fmt(timer)}</b> · <b>{hintCount}</b> hint{hintCount!==1?'s':''}</p>
+                <div className="wrate">{hintCount===0?'⭐⭐⭐ Perfect solve!':hintCount<=3?'⭐⭐ Great job!':'⭐ Well done!'}</div>
+                <button className="nbtn" onClick={()=>startGame(diff)}>Play Again</button>
               </div>
             </div>
           )}
           <div className="board">
-            {board.map((row, r) => row.map((val, c) => {
-              const key = `${r}-${c}`;
-              const isLocked = locked[key];
-              const isSelected = selected && selected[0] === r && selected[1] === c;
-              const isErr = errors[key];
-              const isHinted = hint && hint.row === r && hint.col === c;
-              const cellNotes = notes[key];
+            {board.map((row,r)=>row.map((val,c)=>{
+              const k=`${r}-${c}`;
+              const isLock=locked[k],isSel=sel&&sel[0]===r&&sel[1]===c;
+              const cn=[
+                'cell',isLock?'lk':'ed',
+                isSel?'sl':'',
+                !isSel&&highlight(r,c)?'hl':'',
+                !isSel&&sameVal(r,c)?'sv':'',
+                errors[k]?'er':'',hinted[k]?'hi':'',
+                shake===k?'sk':'',
+                c===2||c===5?'br':'',r===2||r===5?'bb':''
+              ].filter(Boolean).join(' ');
+              const cn2=notes[k];
               return (
-                <div key={key}
-                  className={['cell', isLocked?'locked':'', isSelected?'selected':'',
-                    isHighlighted(r,c)&&!isSelected?'highlighted':'',
-                    isSameVal(r,c)?'same-val':'', isErr?'error':'', isHinted?'hinted':'',
-                    c===2||c===5?'border-right':'', r===2||r===5?'border-bottom':''
-                  ].filter(Boolean).join(' ')}
-                  onClick={() => handleCell(r, c)}>
-                  {val !== 0 ? (
-                    <span className="cell-num">{val}</span>
-                  ) : cellNotes && cellNotes.size > 0 ? (
-                    <div className="notes-grid">
-                      {[1,2,3,4,5,6,7,8,9].map(n => (
-                        <span key={n} className={`note-num ${cellNotes.has(n)?'visible':''}`}>{n}</span>
-                      ))}
-                    </div>
-                  ) : null}
+                <div key={k} className={cn} onClick={()=>{if(!won)setSel([r,c]);}}>
+                  {val!==0?(<span className="cv2">{val}</span>)
+                    :cn2&&cn2.size>0?(
+                      <div className="ng">
+                        {[1,2,3,4,5,6,7,8,9].map(n=>(
+                          <span key={n} className={`nt${cn2.has(n)?' on':''}`}>{n}</span>
+                        ))}
+                      </div>
+                    ):null}
                 </div>
               );
             }))}
           </div>
         </div>
-        <div className="side-panel">
-          <div className="numpad">
-            {[1,2,3,4,5,6,7,8,9].map(n => (
-              <button key={n} className="num-btn" onClick={() => handleInput(n)}>{n}</button>
-            ))}
-            <button className="num-btn erase" onClick={() => handleInput(0)}>✕</button>
+
+        <div className="side">
+          <div className="slabel">Numbers</div>
+          <div className="npad">
+            {[1,2,3,4,5,6,7,8,9].map(n=>{
+              const cnt=numCount(n);
+              return (
+                <button key={n} className={`nk${cnt>=9?' done':''}`}
+                  onClick={()=>input(n)} disabled={cnt>=9}>
+                  <span className="nn">{n}</span>
+                  <span className="nc">{cnt}/9</span>
+                </button>
+              );
+            })}
+            <button className="nk ek" onClick={()=>input(0)}>⌫</button>
           </div>
-          <div className="action-btns">
-            <button className={`action-btn ${noteMode?'note-active':''}`} onClick={() => setNoteMode(m=>!m)}>
-              ✏️ {noteMode?'Notes ON':'Notes'}
+
+          <div className="acts">
+            <button className={`ab${noteMode?' an':''}`} onClick={()=>setNoteMode(m=>!m)}>
+              <span>✏️</span><span>{noteMode?'Notes ON':'Notes'}</span>
             </button>
-            <button className="action-btn hint-btn" onClick={handleHint}>💡 Hint</button>
+            <button className="ab" onClick={undo} disabled={!history.length}>
+              <span>↩</span><span>Undo</span>
+            </button>
+            <button className="ab hb" onClick={hint}>
+              <span>💡</span><span>Hint</span>
+            </button>
           </div>
-          <div className="tip-card">
-            <div className="tip-header">💬 Strategy Tip</div>
-            <div className="tip-body">{tip}</div>
-            <button className="tip-refresh" onClick={() => setTip(getTip())}>Next tip →</button>
+
+          <div className="pcard">
+            <div className="ph"><span>Progress</span><span className="pv">{pct}%</span></div>
+            <div className="pt"><div className="pf" style={{width:`${pct}%`}}/></div>
+            <div className="pc"><span>{filled} filled</span><span>{81-filled} left</span></div>
           </div>
-          <div className="progress-card">
-            <div className="progress-label">Progress</div>
-            <div className="progress-bar-wrap"><div className="progress-bar" style={{width:`${pct}%`}} /></div>
-            <div className="progress-pct">{pct}% filled</div>
+
+          <div className="tcard">
+            <div className="tbadge">💬 Strategy Tip</div>
+            <div className="ttitle">{tip.title}</div>
+            <div className="tbody">{tip.body}</div>
+            <button className="tnext" onClick={()=>setTipIdx(i=>(i+1)%TIPS.length)}>Next tip →</button>
           </div>
         </div>
       </div>
